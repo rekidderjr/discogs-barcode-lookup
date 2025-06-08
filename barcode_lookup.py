@@ -57,18 +57,24 @@ def lookup_barcode(barcode):
             return None
         
         # Extract metadata from the result
+        artist = result['artist']
+        # Keep only the first artist (before any comma)
+        if ',' in artist:
+            artist = artist.split(',')[0].strip()
+            
         metadata = {
             'barcode': barcode,
             'discogs_id': result['id'],
             'discogs_url': f"https://www.discogs.com/release/{result['id']}",
             'title': result['title'],
-            'artist': result['artist'],
+            'artist': artist,
             'year': result['year'],
             'country': result['country'],
             'formats': result['format'].split(', ') if result['format'] else [],
             'labels': result['label'].split(', ') if result['label'] else [],
             'genres': result['genre'].split(', ') if result['genre'] else [],
-            'catno': result['catno']
+            'catno': result['catno'],
+            'path': ''  # Added path field
         }
         
         print(f"✅ Found album: {metadata['artist']} - {metadata['title']} ({metadata['year']})")
@@ -98,7 +104,7 @@ def save_barcode_database(database):
     with open(BARCODE_DB_FILE, 'w') as f:
         json.dump(database, f, indent=2)
 
-def associate_barcode_with_album(barcode, metadata, artist=None, album=None):
+def associate_barcode_with_album(barcode, metadata, artist=None, album=None, path=None):
     """
     Associate a barcode with an album in the database.
     
@@ -107,12 +113,18 @@ def associate_barcode_with_album(barcode, metadata, artist=None, album=None):
         metadata: The metadata from the local database
         artist: Optional artist name override
         album: Optional album name override
+        path: Optional path to the album
     """
     database = load_barcode_database()
     
     # Use provided artist/album or extract from metadata
     artist_name = artist or metadata.get('artist', '')
+    # Keep only the first artist (before any comma)
+    if ',' in artist_name:
+        artist_name = artist_name.split(',')[0].strip()
+        
     album_name = album or metadata.get('title', '')
+    album_path = path or metadata.get('path', '')
     
     # Create entry
     entry = {
@@ -127,6 +139,7 @@ def associate_barcode_with_album(barcode, metadata, artist=None, album=None):
         'labels': metadata.get('labels', []),
         'country': metadata.get('country', ''),
         'catno': metadata.get('catno', ''),
+        'path': album_path,
         'timestamp': datetime.now().isoformat()
     }
     
@@ -139,11 +152,13 @@ def associate_barcode_with_album(barcode, metadata, artist=None, album=None):
 def interactive_mode():
     """Run the barcode lookup tool in interactive mode."""
     print("=== Barcode Lookup Tool ===")
-    print("Enter 'quit' to exit")
+    print("Enter 'quit' or 'q' to exit and save progress")
     
     while True:
-        barcode = input("\nScan or enter barcode: ").strip()
-        if barcode.lower() == 'quit':
+        barcode = input("\nScan or enter barcode [or q for quit]: ").strip()
+        if barcode.lower() in ['quit', 'q']:
+            print("Saving progress...")
+            print("Done! Exiting.")
             break
         
         if not barcode:
@@ -172,14 +187,16 @@ def interactive_mode():
                 if action == 'm':
                     artist = input("Enter artist name: ").strip()
                     album = input("Enter album name: ").strip()
-                    associate_barcode_with_album(barcode, metadata, artist, album)
+                    path = input("Enter album path (optional): ").strip()
+                    associate_barcode_with_album(barcode, metadata, artist, album, path)
                 else:
                     print("Skipping this barcode.")
             else:
                 # Ask if user wants to associate this barcode with the album
                 associate = input("Associate this barcode with the album? (y/n): ").strip().lower()
                 if associate == 'y':
-                    associate_barcode_with_album(barcode, metadata)
+                    path = input("Enter album path (optional): ").strip()
+                    associate_barcode_with_album(barcode, metadata, path=path)
         else:
             print("No album information found for this barcode.")
             
@@ -188,14 +205,16 @@ def interactive_mode():
             if associate == 'y':
                 artist = input("Enter artist name: ").strip()
                 album = input("Enter album name: ").strip()
+                path = input("Enter album path (optional): ").strip()
                 
                 # Create minimal metadata
                 minimal_metadata = {
                     'artist': artist,
-                    'title': album
+                    'title': album,
+                    'path': path
                 }
                 
-                associate_barcode_with_album(barcode, minimal_metadata, artist, album)
+                associate_barcode_with_album(barcode, minimal_metadata, artist, album, path)
 
 def main():
     # Create data directory if it doesn't exist
@@ -204,6 +223,10 @@ def main():
     # Check if barcode was provided as command line argument
     if len(sys.argv) > 1:
         barcode = sys.argv[1]
+        if barcode.lower() in ['quit', 'q']:
+            print("Exiting.")
+            return
+            
         metadata = lookup_barcode(barcode)
         if metadata:
             # Pretty print the metadata
@@ -217,14 +240,16 @@ def main():
                 if action == 'm':
                     artist = input("Enter artist name: ").strip()
                     album = input("Enter album name: ").strip()
-                    associate_barcode_with_album(barcode, metadata, artist, album)
+                    path = input("Enter album path (optional): ").strip()
+                    associate_barcode_with_album(barcode, metadata, artist, album, path)
                 else:
                     print("Skipping this barcode.")
             else:
                 # Ask if user wants to associate this barcode with the album
                 associate = input("Associate this barcode with the album? (y/n): ").strip().lower()
                 if associate == 'y':
-                    associate_barcode_with_album(barcode, metadata)
+                    path = input("Enter album path (optional): ").strip()
+                    associate_barcode_with_album(barcode, metadata, path=path)
     else:
         # Run in interactive mode
         interactive_mode()
