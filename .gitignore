@@ -4,7 +4,7 @@ data/*.xml.gz
 data/*.part*
 
 # SQLite database
-data/discogs_barcodes.db
+data/
 *.db
 *.sqlite
 *.sqlite3
