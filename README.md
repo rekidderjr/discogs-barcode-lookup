@@ -9,9 +9,12 @@ A tool for looking up music album barcodes using Discogs data. Downloads and pro
 - **Fast Performance**: SQLite database optimized for quick barcode searches
 - **Accelerated Downloads**: Multipart downloading for faster acquisition of Discogs data dumps
 - **Interactive Mode**: User-friendly interface for scanning and managing barcodes
-- **Batch Processing**: Open album directories and scan barcodes in batch
+- **Batch Processing**: Process multiple barcodes at once
+- **Arrow Key Navigation**: Select from multiple matching albums using arrow keys
+- **Individual Album JSON Files**: Create separate JSON files for each album
+- **Master Inventory**: Maintain a master inventory of all albums in your collection
 - **Data Correction**: Manually update or correct information when needed
-- **Sample Database**: Includes a sample database for immediate testing
+- **Path Tracking**: Store the physical location of your albums
 
 ## Installation
 
@@ -31,24 +34,7 @@ pip install -r requirements.txt
 chmod +x *.py *.sh
 ```
 
-4. For immediate testing, you can use the included sample database:
-```bash
-python3 sample_data.py
-```
-
 ## Usage
-
-### Quick Start with Sample Data
-
-To quickly test the functionality without downloading the full Discogs data:
-
-```bash
-# Create the sample database
-python3 sample_data.py
-
-# Look up a sample barcode
-python3 barcode_lookup.py 075596082921
-```
 
 ### Full Workflow
 
@@ -78,7 +64,20 @@ python3 barcode_lookup.py 075596082921
 python3 barcode_lookup.py
 ```
 
-#### Step 4: Open Albums and Scan Barcodes
+#### Step 4: Create Album JSON Files
+
+```bash
+# Create JSON for a specific barcode
+python3 album_json_creator.py 075596082921
+
+# Run in interactive mode
+python3 album_json_creator.py
+
+# Process multiple barcodes from a file
+python3 album_json_creator.py barcodes.txt
+```
+
+#### Step 5: Open Albums and Scan Barcodes
 
 ```bash
 ./open_albums_with_barcode.sh
@@ -111,9 +110,23 @@ Looks up album information using barcodes and allows you to associate barcodes w
 - Searches the local database
 - Returns detailed album information
 - Allows manual corrections
-- Stores barcode associations
+- Stores barcode associations in `data/barcode_database.json`
+- Supports arrow key navigation for selecting from multiple matches
+- Keeps only the first artist name for cleaner data
 
-### 4. Album Opener (`open_albums_with_barcode.sh`)
+### 4. Album JSON Creator (`album_json_creator.py`)
+
+Creates individual JSON files for each album based on barcode scans.
+
+- Creates JSON files in `data/albums/` directory
+- Updates a master inventory file (`data/albums/cd_inventory.json`)
+- Detects duplicate barcodes and allows selection from multiple matches
+- Supports interactive, single barcode, and batch modes
+- Color-coded output: green for new albums, yellow for duplicates
+- Keeps only the first artist name for cleaner data
+- Stores album path information
+
+### 5. Album Opener (`open_albums_with_barcode.sh`)
 
 Opens processed album directories in Finder and prompts for barcode scanning.
 
@@ -121,33 +134,75 @@ Opens processed album directories in Finder and prompts for barcode scanning.
 - Opens each album in a separate Finder window
 - Prompts for barcode scanning
 
-### 5. Sample Data Generator (`sample_data.py`)
-
-Creates a small sample SQLite database with hardcoded entries for testing.
-
-- Includes 5 popular albums with their barcodes
-- Allows testing without downloading the full Discogs data
-
 ## Data Storage
 
 - **Discogs Data**: Stored in `data/discogs_20250601_releases.xml.gz`
 - **SQLite Database**: Stored in `data/discogs_barcodes.db`
 - **Barcode Associations**: Stored in `data/barcode_database.json`
+- **Album JSON Files**: Stored in `data/albums/` directory
+- **Master Inventory**: Stored in `data/albums/cd_inventory.json`
+
+## Maintenance
+
+### Updating the Discogs Database
+
+To update the Discogs database with the latest data:
+
+1. Download the latest Discogs data dump:
+```bash
+python3 download_discogs_data.py --force
+```
+
+2. Reprocess the data:
+```bash
+python3 process_discogs_data.py --rebuild
+```
+
+### Managing the Master Inventory
+
+The master inventory is automatically updated whenever you run `album_json_creator.py`. To manually update it:
+
+1. Edit individual album JSON files in the `data/albums/` directory
+2. Run `album_json_creator.py` with any barcode to trigger an update
+
+### Handling Duplicate Barcodes
+
+When a barcode matches multiple albums:
+
+1. In interactive mode, use arrow keys to navigate and select the correct album
+2. Press Enter to select or Esc to cancel
+3. If curses fails, you'll get a text-based menu as a fallback
+
+### Adding Album Paths
+
+To add or update the physical location of an album:
+
+1. When prompted during barcode lookup or album creation, enter the path
+2. To update existing entries, edit the JSON files directly or rescan the barcode
+
+### Quitting and Saving Progress
+
+Both tools support quick exit with progress saving:
+
+1. Type 'q' or 'quit' when prompted for a barcode
+2. All changes will be saved before exiting
 
 ## Integration with Music Collection Manager
 
 This tool can be integrated with music collection management workflows:
 
 1. After albums are processed, use `open_albums_with_barcode.sh` to open them and scan barcodes
-2. The barcode associations are stored in a JSON database
+2. The barcode associations are stored in JSON files and a master inventory
 3. These associations can be used to enhance metadata or cross-reference with other sources
+4. The Path field allows tracking the physical location of albums
 
 ## Notes
 
 - The initial download and processing will take significant time due to the large size of the Discogs data dumps.
 - Once the database is created, barcode lookups are fast and work offline.
-- The barcode database is updated whenever you associate a barcode with an album.
+- The barcode database and album JSON files are updated whenever you associate a barcode with an album.
 - The tool is designed to work on macOS but can be adapted for other platforms.
+- Only the first artist name is kept (before any comma) for cleaner data presentation.
 
 ## License
 
