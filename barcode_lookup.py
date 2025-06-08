@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import sqlite3
+import curses
 from datetime import datetime
 
 # Get the script directory
@@ -104,6 +105,130 @@ def save_barcode_database(database):
     with open(BARCODE_DB_FILE, 'w') as f:
         json.dump(database, f, indent=2)
 
+def find_all_albums_in_database(barcode):
+    """
+    Find all albums with the given barcode in the barcode database.
+    
+    Args:
+        barcode: The barcode to search for
+        
+    Returns:
+        List of album entries or empty list if not found
+    """
+    database = load_barcode_database()
+    
+    matching_albums = []
+    
+    # Check if this exact barcode exists
+    if barcode in database:
+        matching_albums.append(database[barcode])
+    
+    # Also check for partial matches (e.g., if barcode has extra digits)
+    for db_barcode, album_data in database.items():
+        if barcode in db_barcode or db_barcode in barcode:
+            if album_data not in matching_albums:  # Avoid duplicates
+                matching_albums.append(album_data)
+    
+    return matching_albums
+
+def select_album_menu(matching_albums):
+    """
+    Display a menu to select from multiple matching albums.
+    
+    Args:
+        matching_albums: List of album data dictionaries
+        
+    Returns:
+        Selected album data or None if cancelled
+    """
+    if not matching_albums:
+        return None
+    
+    if len(matching_albums) == 1:
+        return matching_albums[0]
+    
+    def _show_menu(stdscr):
+        curses.curs_set(0)  # Hide cursor
+        current_row = 0
+        
+        # Get screen dimensions
+        max_y, max_x = stdscr.getmaxyx()
+        
+        # Calculate menu dimensions
+        menu_height = min(len(matching_albums) + 4, max_y - 2)
+        menu_width = max_x - 4
+        start_y = (max_y - menu_height) // 2
+        start_x = 2
+        
+        # Create menu window
+        menu_win = curses.newwin(menu_height, menu_width, start_y, start_x)
+        menu_win.keypad(True)
+        
+        # Draw menu
+        while True:
+            menu_win.clear()
+            menu_win.box()
+            menu_win.addstr(1, 2, "Multiple albums found with this barcode. Select one:")
+            
+            # Display albums
+            for i, album_data in enumerate(matching_albums):
+                # Highlight the current selection
+                if i == current_row:
+                    menu_win.attron(curses.A_REVERSE)
+                
+                # Format album info
+                album_info = f"{album_data.get('artist', 'Unknown')} - {album_data.get('album', 'Unknown')} ({album_data.get('year', 'Unknown')})"
+                
+                # Truncate if too long
+                if len(album_info) > menu_width - 6:
+                    album_info = album_info[:menu_width - 9] + "..."
+                
+                # Display album info
+                if i < menu_height - 4:  # Ensure we don't go beyond window bounds
+                    menu_win.addstr(i + 2, 2, album_info)
+                
+                if i == current_row:
+                    menu_win.attroff(curses.A_REVERSE)
+            
+            # Add instructions
+            menu_win.addstr(menu_height - 1, 2, "Use arrow keys to navigate, Enter to select, Esc to cancel")
+            
+            # Update the window
+            menu_win.refresh()
+            
+            # Get user input
+            key = menu_win.getch()
+            
+            if key == curses.KEY_UP and current_row > 0:
+                current_row -= 1
+            elif key == curses.KEY_DOWN and current_row < len(matching_albums) - 1:
+                current_row += 1
+            elif key == 10:  # Enter key
+                return current_row
+            elif key == 27:  # Escape key
+                return -1
+    
+    try:
+        selected = curses.wrapper(_show_menu)
+        if selected >= 0:
+            return matching_albums[selected]
+        return None
+    except Exception as e:
+        print(f"Error displaying menu: {e}")
+        # Fallback to simple selection
+        print("\nMultiple albums found with this barcode:")
+        for i, album_data in enumerate(matching_albums):
+            print(f"{i+1}. {album_data.get('artist', 'Unknown')} - {album_data.get('album', 'Unknown')} ({album_data.get('year', 'Unknown')})")
+        
+        try:
+            choice = int(input("\nSelect album number (0 to cancel): "))
+            if 1 <= choice <= len(matching_albums):
+                return matching_albums[choice-1]
+        except (ValueError, IndexError):
+            pass
+        
+        return None
+
 def associate_barcode_with_album(barcode, metadata, artist=None, album=None, path=None):
     """
     Associate a barcode with an album in the database.
@@ -164,6 +289,34 @@ def interactive_mode():
         if not barcode:
             print("Please enter a valid barcode")
             continue
+        
+        # First check if the album already exists in our database
+        matching_albums = find_all_albums_in_database(barcode)
+        
+        if matching_albums:
+            # Yellow color for duplicate
+            print(f"\033[93m[DUPLICATE] Found {len(matching_albums)} album(s) with this barcode\033[0m")
+            
+            # Let user select from matching albums
+            selected = select_album_menu(matching_albums)
+            
+            if selected:
+                print(f"Selected: {selected.get('artist')} - {selected.get('album')} ({selected.get('year')})")
+                
+                # Display the selected album details
+                print("\n=== Album Information ===")
+                for key, value in selected.items():
+                    if key != "timestamp":  # Skip the timestamp
+                        print(f"{key}: {value}")
+                
+                continue
+            else:
+                print("No album selected.")
+                
+                # Ask if user wants to continue with database lookup
+                lookup_db = input("\nLook up in Discogs database? (y/n): ").strip().lower()
+                if lookup_db != 'y':
+                    continue
         
         metadata = lookup_barcode(barcode)
         
@@ -226,6 +379,30 @@ def main():
         if barcode.lower() in ['quit', 'q']:
             print("Exiting.")
             return
+        
+        # First check if the album already exists in our database
+        matching_albums = find_all_albums_in_database(barcode)
+        
+        if matching_albums:
+            # Yellow color for duplicate
+            print(f"\033[93m[DUPLICATE] Found {len(matching_albums)} album(s) with this barcode\033[0m")
+            
+            # Let user select from matching albums
+            selected = select_album_menu(matching_albums)
+            
+            if selected:
+                print(f"Selected: {selected.get('artist')} - {selected.get('album')} ({selected.get('year')})")
+                
+                # Pretty print the selected album details
+                print(json.dumps(selected, indent=2))
+                return
+            else:
+                print("No album selected.")
+                
+                # Ask if user wants to continue with database lookup
+                lookup_db = input("\nLook up in Discogs database? (y/n): ").strip().lower()
+                if lookup_db != 'y':
+                    return
             
         metadata = lookup_barcode(barcode)
         if metadata:

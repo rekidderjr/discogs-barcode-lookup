@@ -13,6 +13,7 @@ import json
 import sqlite3
 import re
 import glob
+import curses
 from datetime import datetime
 from barcode_lookup import lookup_barcode
 
@@ -44,15 +45,15 @@ def sanitize_filename(filename):
         sanitized = sanitized[:100]
     return sanitized
 
-def find_existing_album_by_barcode(barcode):
+def find_all_albums_by_barcode(barcode):
     """
-    Check if an album with the given barcode already exists in the albums directory.
+    Find all albums with the given barcode in the albums directory.
     
     Args:
         barcode: The barcode to search for
         
     Returns:
-        Tuple of (exists, filepath, album_data) or (False, None, None) if not found
+        List of tuples (filepath, album_data) or empty list if not found
     """
     # Create albums directory if it doesn't exist
     os.makedirs(ALBUMS_DIR, exist_ok=True)
@@ -61,16 +62,116 @@ def find_existing_album_by_barcode(barcode):
     json_files = [f for f in glob.glob(os.path.join(ALBUMS_DIR, "*.json")) 
                  if os.path.basename(f) != "cd_inventory.json"]
     
+    matching_albums = []
+    
     for json_file in json_files:
         try:
             with open(json_file, 'r', encoding='utf-8') as f:
                 album_data = json.load(f)
                 if album_data.get('Barcode') == barcode:
-                    return True, json_file, album_data
+                    matching_albums.append((json_file, album_data))
         except Exception as e:
             print(f"Error reading {json_file}: {e}")
     
-    return False, None, None
+    return matching_albums
+
+def select_album_menu(matching_albums):
+    """
+    Display a menu to select from multiple matching albums.
+    
+    Args:
+        matching_albums: List of tuples (filepath, album_data)
+        
+    Returns:
+        Tuple of (filepath, album_data) for the selected album or None if cancelled
+    """
+    if not matching_albums:
+        return None
+    
+    if len(matching_albums) == 1:
+        return matching_albums[0]
+    
+    def _show_menu(stdscr):
+        curses.curs_set(0)  # Hide cursor
+        current_row = 0
+        
+        # Get screen dimensions
+        max_y, max_x = stdscr.getmaxyx()
+        
+        # Calculate menu dimensions
+        menu_height = min(len(matching_albums) + 4, max_y - 2)
+        menu_width = max_x - 4
+        start_y = (max_y - menu_height) // 2
+        start_x = 2
+        
+        # Create menu window
+        menu_win = curses.newwin(menu_height, menu_width, start_y, start_x)
+        menu_win.keypad(True)
+        
+        # Draw menu
+        while True:
+            menu_win.clear()
+            menu_win.box()
+            menu_win.addstr(1, 2, "Multiple albums found with this barcode. Select one:")
+            
+            # Display albums
+            for i, (filepath, album_data) in enumerate(matching_albums):
+                # Highlight the current selection
+                if i == current_row:
+                    menu_win.attron(curses.A_REVERSE)
+                
+                # Format album info
+                album_info = f"{album_data.get('Artist', 'Unknown')} - {album_data.get('Title', 'Unknown')} ({album_data.get('Year', 'Unknown')})"
+                
+                # Truncate if too long
+                if len(album_info) > menu_width - 6:
+                    album_info = album_info[:menu_width - 9] + "..."
+                
+                # Display album info
+                if i < menu_height - 4:  # Ensure we don't go beyond window bounds
+                    menu_win.addstr(i + 2, 2, album_info)
+                
+                if i == current_row:
+                    menu_win.attroff(curses.A_REVERSE)
+            
+            # Add instructions
+            menu_win.addstr(menu_height - 1, 2, "Use arrow keys to navigate, Enter to select, Esc to cancel")
+            
+            # Update the window
+            menu_win.refresh()
+            
+            # Get user input
+            key = menu_win.getch()
+            
+            if key == curses.KEY_UP and current_row > 0:
+                current_row -= 1
+            elif key == curses.KEY_DOWN and current_row < len(matching_albums) - 1:
+                current_row += 1
+            elif key == 10:  # Enter key
+                return current_row
+            elif key == 27:  # Escape key
+                return -1
+    
+    try:
+        selected = curses.wrapper(_show_menu)
+        if selected >= 0:
+            return matching_albums[selected]
+        return None
+    except Exception as e:
+        print(f"Error displaying menu: {e}")
+        # Fallback to simple selection
+        print("\nMultiple albums found with this barcode:")
+        for i, (filepath, album_data) in enumerate(matching_albums):
+            print(f"{i+1}. {album_data.get('Artist', 'Unknown')} - {album_data.get('Title', 'Unknown')} ({album_data.get('Year', 'Unknown')})")
+        
+        try:
+            choice = int(input("\nSelect album number (0 to cancel): "))
+            if 1 <= choice <= len(matching_albums):
+                return matching_albums[choice-1]
+        except (ValueError, IndexError):
+            pass
+        
+        return None
 
 def load_inventory():
     """
@@ -233,20 +334,29 @@ def interactive_mode():
             continue
         
         # First check if the album already exists in our JSON files
-        exists, json_file, album_data = find_existing_album_by_barcode(barcode)
+        matching_albums = find_all_albums_by_barcode(barcode)
         
-        if exists:
+        if matching_albums:
             # Yellow color for duplicate
-            print(f"\033[93m[DUPLICATE] {album_data.get('Artist')} - {album_data.get('Title')} ({album_data.get('Year')})\033[0m")
-            print(f"Already exists in: {json_file}")
+            print(f"\033[93m[DUPLICATE] Found {len(matching_albums)} album(s) with this barcode\033[0m")
             
-            # Ask if user wants to view the existing data
-            view = input("\nView existing data? (y/n): ").strip().lower()
-            if view == 'y':
-                print("\n=== Existing Album Information ===")
-                for key, value in album_data.items():
-                    if key != "Created":  # Skip the timestamp
-                        print(f"{key}: {value}")
+            # Let user select from matching albums
+            selected = select_album_menu(matching_albums)
+            
+            if selected:
+                json_file, album_data = selected
+                print(f"Selected: {album_data.get('Artist')} - {album_data.get('Title')} ({album_data.get('Year')})")
+                print(f"File: {json_file}")
+                
+                # Ask if user wants to view the existing data
+                view = input("\nView selected album details? (y/n): ").strip().lower()
+                if view == 'y':
+                    print("\n=== Album Information ===")
+                    for key, value in album_data.items():
+                        if key != "Created":  # Skip the timestamp
+                            print(f"{key}: {value}")
+            else:
+                print("No album selected.")
             
             continue
         
@@ -335,12 +445,20 @@ def batch_mode(barcodes):
         print(f"\nProcessing barcode: {barcode}")
         
         # First check if the album already exists in our JSON files
-        exists, json_file, album_data = find_existing_album_by_barcode(barcode)
+        matching_albums = find_all_albums_by_barcode(barcode)
         
-        if exists:
+        if matching_albums:
             # Yellow color for duplicate
-            print(f"\033[93m[DUPLICATE] {album_data.get('Artist')} - {album_data.get('Title')} ({album_data.get('Year')})\033[0m")
-            print(f"Already exists in: {json_file}")
+            print(f"\033[93m[DUPLICATE] Found {len(matching_albums)} album(s) with this barcode\033[0m")
+            
+            # In batch mode, just show the first match
+            json_file, album_data = matching_albums[0]
+            print(f"First match: {album_data.get('Artist')} - {album_data.get('Title')} ({album_data.get('Year')})")
+            print(f"File: {json_file}")
+            
+            if len(matching_albums) > 1:
+                print(f"(+ {len(matching_albums) - 1} more matches)")
+            
             continue
         
         # If not found in JSON files, look up in the database
