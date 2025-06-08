@@ -1,0 +1,84 @@
+# Discogs data dumps (large files)
+data/discogs_*.xml.gz
+data/*.xml.gz
+data/*.part*
+
+# SQLite database
+data/discogs_barcodes.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Barcode database
+data/barcode_database.json
+*.json
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+.env
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Output directories
+output/
+temp/
+
+# Secrets and API keys
+*secret*
+*api_key*
+*apikey*
+*credential*
+*.pem
+*.key
